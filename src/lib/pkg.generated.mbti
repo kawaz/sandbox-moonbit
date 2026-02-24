@@ -1,0 +1,242 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "kawaz/cli/src/lib"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn apply_defaults(Array[OptDef], Array[String]) -> Array[OptDef]
+
+pub fn find_command(CmdDef, Array[String], Array[OptDef]) -> (CmdDef, Array[String], Array[String]) raise ParseError
+
+pub fn parse(Array[OptDef], Array[String], positional_spec? : Positional) -> ParseResult raise ParseError
+
+pub fn parse_command(CmdDef, Array[String]) -> CommandResult raise ParseError
+
+pub fn resolve_long(Array[OptDef], String) -> ResolveResult raise ParseError
+
+pub fn resolve_short(Array[OptDef], Char) -> ResolveResult raise ParseError
+
+pub fn tokenize(Array[String]) -> Array[Token]
+
+pub fn validate_command(CmdDef) -> Unit raise ParseError
+
+pub fn validate_opts(Array[OptDef]) -> Unit raise ParseError
+
+// Errors
+pub(all) suberror ParseError {
+  UnknownOption(String)
+  MissingValue(String)
+  MissingRequired(String)
+  InvalidChoice(option~ : String, value~ : String, choices~ : Array[String])
+  HelpRequested
+  DefinitionError(String)
+  UnknownCommand(String)
+  VersionRequested
+  TooManyPositional(context~ : String, expected~ : Int, actual~ : Int)
+  TooFewPositional(context~ : String, expected~ : Int, actual~ : Int)
+  UnexpectedPositional(context~ : String, value~ : String)
+}
+pub impl Show for ParseError
+
+// Types and methods
+pub(all) struct AliasEntry {
+  name : String
+  visibility : Visibility
+  deprecated : String?
+}
+pub fn AliasEntry::new(name~ : String, visibility? : Visibility, deprecated? : String?) -> Self
+pub impl Eq for AliasEntry
+pub impl Show for AliasEntry
+pub impl @debug.Debug for AliasEntry
+
+pub(all) struct CmdDef {
+  name : String
+  description : String
+  version : String
+  opts : Array[OptDef]
+  global_opts : Array[OptDef]
+  subcommands : Array[CmdDef]
+  aliases : Array[AliasEntry]
+  help_on_empty : Bool
+  positional_spec : Positional
+}
+pub fn CmdDef::new(name~ : String, description? : String, version? : String, opts? : Array[OptDef], global_opts? : Array[OptDef], subcommands? : Array[Self], aliases? : Array[AliasEntry], help_on_empty? : Bool, positional_spec? : Positional) -> Self
+pub impl Show for CmdDef
+pub impl @debug.Debug for CmdDef
+
+pub(all) struct CommandResult {
+  command : Array[String]
+  result : ParseResult
+}
+pub fn CommandResult::new(command? : Array[String], result? : ParseResult) -> Self
+pub impl Eq for CommandResult
+pub impl Show for CommandResult
+pub impl @debug.Debug for CommandResult
+
+pub(all) enum FlagInversion {
+  PrefixNo
+  PrefixEnableDisable
+  PrefixWithWithout
+}
+pub impl Eq for FlagInversion
+pub impl Show for FlagInversion
+pub impl @debug.Debug for FlagInversion
+
+pub(all) struct GroupInstance {
+  value : String?
+  result : ParseResult
+}
+pub impl Eq for GroupInstance
+pub impl Show for GroupInstance
+pub impl @debug.Debug for GroupInstance
+
+pub(all) enum GroupKind {
+  Valueless
+  WithValue(default~ : String?)
+}
+pub impl Eq for GroupKind
+pub impl Show for GroupKind
+pub impl @debug.Debug for GroupKind
+
+pub(all) enum HelpSection {
+  Commands
+  Options
+  GlobalOptions
+  EnvironmentVariables
+}
+pub impl Eq for HelpSection
+pub impl Show for HelpSection
+pub impl @debug.Debug for HelpSection
+
+pub(all) struct OptDef {
+  long : String
+  help : String
+  kind : OptKind
+  shorts : Array[ShortEntry]
+  aliases : Array[AliasEntry]
+  inversion : FlagInversion?
+  env : String?
+  choices : Array[String]
+  value_name : String
+  required : Bool
+  visibility : Visibility
+}
+pub fn OptDef::new(long~ : String, help~ : String, kind~ : OptKind, shorts? : Array[ShortEntry], aliases? : Array[AliasEntry], inversion? : FlagInversion?, env? : String?, choices? : Array[String], value_name? : String, required? : Bool, visibility? : Visibility) -> Self
+pub impl Eq for OptDef
+pub impl Show for OptDef
+pub impl @debug.Debug for OptDef
+
+pub(all) enum OptKind {
+  Flag(default~ : Bool)
+  Single(default~ : String?)
+  Append(defaults~ : Array[String], n~ : Int)
+  Count(default~ : Int)
+  OptionalValue(default~ : String?, implicit~ : String, negated~ : String?)
+  Group(group_kind~ : GroupKind, opts~ : Array[OptDef], positional~ : Positional)
+}
+pub impl Eq for OptKind
+pub impl Show for OptKind
+pub impl @debug.Debug for OptKind
+
+pub(all) struct ParseResult {
+  values : Map[String, ParsedValue]
+  positional : Array[String]
+  rest : Array[String]
+  chunk_sizes : Map[String, Int]
+}
+pub fn ParseResult::get_chunks(Self, String) -> Array[Array[String]]
+pub fn ParseResult::get_count(Self, String) -> Int
+pub fn ParseResult::get_flag(Self, String) -> Bool
+pub fn ParseResult::get_group(Self, String) -> Array[GroupInstance]?
+pub fn ParseResult::get_int(Self, String) -> Int?
+pub fn ParseResult::get_list(Self, String) -> Array[String]
+pub fn ParseResult::get_string(Self, String) -> String?
+pub fn ParseResult::new() -> Self
+pub impl Eq for ParseResult
+pub impl Show for ParseResult
+pub impl @debug.Debug for ParseResult
+
+pub(all) enum ParsedValue {
+  FlagValue(Bool)
+  StringValue(String)
+  ListValue(Array[String])
+  CountValue(Int)
+  GroupValue(Array[GroupInstance])
+}
+pub impl Eq for ParsedValue
+pub impl Show for ParsedValue
+pub impl @debug.Debug for ParsedValue
+
+pub(all) enum Positional {
+  Disallowed
+  Fixed(Array[PositionalDef])
+  Variadic(PositionalDef)
+}
+pub impl Eq for Positional
+pub impl Show for Positional
+pub impl @debug.Debug for Positional
+
+pub(all) struct PositionalDef {
+  name : String
+  help : String
+  choices : Array[String]
+}
+pub fn PositionalDef::new(name? : String, help? : String, choices? : Array[String]) -> Self
+pub impl Eq for PositionalDef
+pub impl Show for PositionalDef
+pub impl @debug.Debug for PositionalDef
+
+pub(all) enum ResolveDirection {
+  Normal
+  Inverted
+}
+pub impl Eq for ResolveDirection
+pub impl Show for ResolveDirection
+pub impl @debug.Debug for ResolveDirection
+
+pub(all) struct ResolveResult {
+  index : Int
+  direction : ResolveDirection
+}
+pub impl Eq for ResolveResult
+pub impl Show for ResolveResult
+pub impl @debug.Debug for ResolveResult
+
+pub(all) struct ShortEntry {
+  char : Char
+  visibility : Visibility
+}
+pub fn ShortEntry::new(char~ : Char, visibility? : Visibility) -> Self
+pub impl Eq for ShortEntry
+pub impl Show for ShortEntry
+pub impl @debug.Debug for ShortEntry
+
+pub(all) enum Token {
+  LongOpt(String)
+  LongOptWithValue(String, String)
+  ShortOpts(String)
+  Positional(String)
+  DoubleDash
+}
+pub impl Eq for Token
+pub impl Show for Token
+pub impl @debug.Debug for Token
+
+pub(all) struct Visibility {
+  show_in_help : Bool
+  show_in_completion : Bool
+}
+pub fn Visibility::completion_only() -> Self
+pub fn Visibility::help_only() -> Self
+pub fn Visibility::hidden() -> Self
+pub fn Visibility::shown() -> Self
+pub impl Eq for Visibility
+pub impl Show for Visibility
+pub impl @debug.Debug for Visibility
+
+// Type aliases
+
+// Traits
+
