@@ -103,14 +103,14 @@ enum Opts {
 |---|---|
 | ツリー構造 | Opts enum（Node/Array/Map）— JSON-like 再帰構造 |
 | Opt の mutability | 完全 immutable。id : Int で一意識別 |
-| 結果保持 | ResultMap（外部 Map[Int, 型消去された値]） |
-| 値の取得 | result.get(opt) — Opt をレンズ/キーとして使用 |
+| 結果保持 | ResultMap（ID + clone レジストリのみ）。値は Opt[T] 側に分散（Ref[T] クロージャキャプチャ方式） |
+| 値の取得 | result.get(opt) = opt.slots[result.id].val で直接 T を返す。ダウンキャスト不使用 |
 | グループ | 雛形 + clone（新 ID 発行）。result.get_groups(upstream) -> Array[ResultMap] |
-| サブコマンド取得 | result.command() -> Opt? |
+| サブコマンド取得 | result.command() -> &ErasedNode? |
 | グローバルオプション | meta.global フラグ。スコープ以下に伝搬 |
 | 位置パラメータ | serial（固定長）+ rest（可変長）+ 組み合わせ |
-| defaults | 後勝ち上書き。ResultMap コピーでスナップショット |
-| reducer エラーパス | `(T, ReduceAction) -> T!ParseError`。raise で伝搬 |
+| defaults | 後勝ち上書き。ResultMap clone でスナップショット（clone_fns 経由で独立 Ref 作成） |
+| reducer 署名 | `(T, ReduceAction) -> T?!ParseError`。None=食えない、Some(T)=消費成功、raise=エラー |
 | clone ID | グローバル sequential 一意 ID。複合キー不要 |
 | defaults マージ | 各ソースごと新 ResultMap + 後勝ちマージ |
 | greedy | `meta.greedy = true` — 非 greedy を除外するフィルタ |
@@ -137,10 +137,27 @@ enum Opts {
 ### グループ clone 時に複合キー (template_id, clone_id) を使う方式
 不採用理由: clone ID がグローバルに一意なので複合キー不要。各グループの ResultMap は独立インスタンスであり、雛形の template_id をキーに使えば衝突しない。
 
+### Step 9: ResultMap 型消去 PoC 検証（解決済み）
+
+- **方式A: Ref[T] クロージャキャプチャ方式を採用**
+- ResultMap は値を持たない。ID + clone 用クロージャレジストリのみ
+- Opt[T] が `slots: Map[Int, Ref[T]]` で各 ResultMap ごとの値を分散管理
+- `result.get(opt)` = `opt.slots[result.id].val` で直接 T を返す
+- ダウンキャスト不使用、型安全性は静的に保証
+
+不採用: **enum Value ラッパー方式** — 閉じた型集合 `enum Value { VInt(Int); VBool(Bool); ... }` では `opt::custom` の開放性要件を満たせない
+
+### Step 10: 消費ループアルゴリズム明記
+
+- OC モード（Option/Command 優先）→ P モード（Positional フォールバック）の2層構造
+- reducer 署名を `(T, ReduceAction) -> T?!ParseError` に変更（3値: None/Some(T)/raise）
+- 10ステップのアルゴリズムを設計書に明記
+
 ## 未解決事項
 
-- ResultMap 内部の型消去された値の保持方法（`Map[Int, ???]` の ??? 部分）
-- `&ErasedNode` に `store_to(ResultMap)` / `load_from(ResultMap)` 的なメソッドを持たせてクロージャで T を閉じ込める方向
+- ~~ResultMap 内部の型消去された値の保持方法~~ → **解決済み**: Ref[T] クロージャキャプチャ方式
+- `or` の結果型と required の関係
+- `--` の tokenize/parse 間の接続方式（DoubleDash トークン廃止の PoC）
 
 ## 付録: 生チャットログ
 
