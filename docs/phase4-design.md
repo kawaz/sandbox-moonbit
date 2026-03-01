@@ -20,7 +20,7 @@ Design rationale: 旧設計では `Map[String, Array[String]]` による String 
 - **parse はツリーを走査して ResultMap に結果を書き込む** — `&ErasedNode` 経由で型を知らずに操作
 - **ユーザーは `result.get(opt)` で型付きの値を取得** — Opt[T] がレンズ/キーとして機能
 - **defaults は優先順位付きソースからの置き換え**（積み上げではない） — 後のソースが前を丸ごと上書き
-- **reducer はシンプルに `(T, ReduceAction) -> T!ParseError`** — ReduceContext は不要、エラーは raise で伝搬
+- **reducer はシンプルに `(T, ReduceAction) -> T?!ParseError`** — None = マッチしない（候補から脱落）、Some(T) = 消費成功、raise ParseError = エラー
 
 ---
 
@@ -35,7 +35,7 @@ Design rationale: 旧設計では `Map[String, Array[String]]` による String 
 struct Opt[T] {
   id : Int                    // 一意 ID（生成時にインクリメント）
   initial : InitialValue[T]
-  reducer : (T, ReduceAction) -> T!ParseError
+  reducer : (T, ReduceAction) -> T?!ParseError
   meta : OptMeta
 }
 
@@ -95,22 +95,33 @@ pub(all) enum ReduceAction {
 
 ### reducer 統一パターン
 
-全ての OptKind は `(T, ReduceAction) -> T!ParseError` の reducer で表現される。OptKind enum は不要。
+全ての OptKind は `(T, ReduceAction) -> T?!ParseError` の reducer で表現される。OptKind enum は不要。
 
 | 種別 | initial | reducer |
 |------|---------|---------|
-| Flag | `false` | `(_, Value(None)) -> true`, `(_, Negate) -> initial` |
-| Count | `0` | `(n, Value(None)) -> n + 1`, `(_, Negate) -> initial` |
-| Single | `None` | `(_, Value(Some(s))) -> Some(parse!(s))`, `(_, Negate) -> initial` |
-| Append | `[]` | `(arr, Value(Some(s))) -> [...arr, parse!(s)]`, `(_, Negate) -> initial` |
-| OptionalValue | `None` | `(_, Value(None)) -> Some(implicit)`, `(_, Value(Some(s))) -> Some(s)` |
+| Flag | `false` | `(_, Value(None)) -> Some(true)`, `(_, Negate) -> Some(initial)` |
+| Count | `0` | `(n, Value(None)) -> Some(n + 1)`, `(_, Negate) -> Some(initial)` |
+| Single | `None` | `(_, Value(Some(s))) -> Some(Some(parse!(s)))`, `(_, Negate) -> Some(initial)` |
+| Append | `[]` | `(arr, Value(Some(s))) -> Some([...arr, parse!(s)])`, `(_, Negate) -> Some(initial)` |
+| OptionalValue | `None` | `(_, Value(None)) -> Some(Some(implicit))`, `(_, Value(Some(s))) -> Some(Some(s))` |
 
 プリミティブ型コンビネータは custom の特殊化: `opt::int` = `opt::custom(parse_int)`
 
 Design rationale: 旧設計では `ReduceContext` が `value`, `initial`, `defaults`, `explicitly_set` を
 運搬していた。新設計では Opt[T] は immutable で結果は ResultMap に保持されるため、reducer の引数は
-`(T, ReduceAction) -> T!ParseError` だけで十分。現在値は ResultMap からルックアップし、初期値は `self.initial` で参照できる。
+`(T, ReduceAction) -> T?!ParseError` だけで十分。現在値は ResultMap からルックアップし、初期値は `self.initial` で参照できる。
 エラーパスは MoonBit の raise 構文で伝搬する。parse!(s) が失敗した場合、reducer から ParseError が raise される。
+reducer の戻り値は3値: None（マッチしない = 候補脱落）、Some(T)（消費成功）、raise ParseError（エラー）。
+消費ループの step 3 で各候補の reducer に引数を渡し、None を返すものを除去する仕組みの根幹。
+例: flag は常に Some(true)、int に "abc" → None、file に存在しないパス → None、since に "1h3m" → Some(Duration)。
+
+reducer の3値の設計根拠:
+- None: 「この引数を食えない」= 消費ループの候補選定で使用。他の候補を試す
+- Some(T): 「この引数を消費した」= 結果を ResultMap に書き込む
+- ParseError: 「マッチしたがバリデーション失敗」= 即座にエラー
+
+これにより reducer は「パーサ（食えるか判定）」と「バリデータ（型変換の検証）」を兼ねる。
+例: int の reducer は "123" → Some(123)、"abc" → None。file の reducer は存在するファイルパス → Some(path)、存在しない → None。
 
 ---
 
@@ -200,7 +211,7 @@ parse がツリーを走査するための trait object。parse は具体的な 
 pub(open) trait ErasedNode {
   meta(Self) -> OptMeta
   arity(Self) -> Int
-  reduce_erased(Self, ReduceAction, &ResultMap) -> Unit!ParseError  // ResultMap に書き込み
+  reduce_erased(Self, ReduceAction, &ResultMap) -> Unit?!ParseError  // None = マッチしない、ResultMap に書き込み
   reset_to_initial(Self, &ResultMap) -> Unit
   children(Self) -> Array[&ErasedNode]       // ツリー走査用
 }
@@ -242,6 +253,81 @@ String への変換が不要。`children()` はツリー構造の走査用だが
 ```
 
 meta に格納するので flag 以外（positional, command 等）にも適用可能。
+
+---
+
+## 引数消費ループ — parse コアアルゴリズム
+
+### 概要
+
+parse のコアは引数消費ループ。2つのモードを持つ:
+
+- **OC モード（初期）**: Option/Command を優先マッチ。Positional はフォールバック
+- **P モード**: OC 全滅後に遷移。Command はもう候補にならない。Option は割り込み可能
+
+kind の優先度: Option = Command > Positional
+
+### アルゴリズム（n番目の引数消費、n=1スタート）
+
+```
+0. カレントスコープ = parse に渡された Opts
+
+1. 正規化: Node(opt) → Array([opt])
+
+2. カレントスコープから OC リスト（Option/Command）と P リスト（Positional）を収集
+   - コンテナ（Array/serial/or 等）なら再帰的に1つ目の OC を取得
+   - フラットな OC リストにする
+   - OC に引っかからなかったものは P リストへ
+
+3. 各 OC の reducer に args(n) を渡し、None を返すものを除去
+   （reducer が T? を返す: None = 食えない、Some(T) = 食えた）
+
+4. greedy フィルタ
+   OC リストに greedy=true があれば greedy=false を除去
+
+5. OC=0 かつ args(n+1) なし → パース完了。消費ループ脱出
+
+6. OC=0 かつ args(n+1) あり
+   6a. P リストなし → ParseError（予期しない引数）
+   6b. P リストあり → P モードに遷移して消費ループ継続
+
+7. OC=1 (Node) → その OC が args(n) を消費、カレントスコープ更新、消費ループ継続
+
+8. （7と同じく単一候補の変種があればここに追加）
+
+9. OC=2+ (全 Node) → ParseError（曖昧）
+
+10. OC=2+ (全 Array) → 各 OC が args(n) を仮消費して
+    それぞれの OC で消費ループ継続（並列探索）
+    - 1つだけ成功（食い残しなし）→ その結果を採用
+    - 全パス成功（食い残しなし）→ ParseError（曖昧）
+    - 全パス失敗 → ParseError
+```
+
+### P モードの制約
+
+P 消費に遷移した後:
+
+- **Command は候補にならない**（サブコマンド選択は確定済み）
+- 消費対象は: そのサブコマンドレベルの Option + グローバル Option + 残り Positional
+- Option が見つかったら割り込み消費し、P の消費に戻る
+
+```
+P モード:
+  token = args(n)
+  if token が Option としてマッチ → Option を消費、P に戻る
+  else → P リストの次の Positional で消費
+```
+
+### スコープ遷移
+
+Command がマッチしたら:
+
+- カレントスコープを Command の子 Opts に切り替え
+- `global=true` のノードは親スコープから引き継ぐ
+- 以降の消費ループは新スコープ内で OC モードから再開
+
+Design rationale: 引数消費を OC モードと P モードの2層で処理することで、Option/Command を確実に先に解決し、Positional は残り物として扱う。P モードでも Option の割り込みを許容するため、`cmd file1 --verbose file2` のような自然な記述が可能。Command は P モード移行後は候補から外れるため、位置引数とサブコマンド名の衝突を防ぐ。
 
 ---
 
@@ -407,6 +493,8 @@ pub(all) struct OptMeta {
 | greedy | `meta.greedy = true` — 消費ループで非 greedy 候補を除外 |
 | never | `never()` — 常に ParseError。serial 末尾のセンチネル |
 | `--` (double dash) | `flag(name="", greedy=true, global=true)` + serial で統一表現 |
+| OC モード | 初期モード。Option/Command 優先、Positional はフォールバック |
+| P モード | OC 全滅後。Option 割り込み可、Command 不可 |
 | 結果保持 | `ResultMap`（Opt immutable、ID ベース） |
 
 ---

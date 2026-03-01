@@ -1,4 +1,4 @@
-# DR-007: Opts enum + ResultMap + immutable Opt 設計（2026-03-01）
+# DR-007: Opts enum + ResultMap + immutable Opt + greedy/never 設計（2026-03-01）
 
 ## 概要
 
@@ -61,6 +61,42 @@ enum Opts {
   - `serial(file, rest(path))` — 固定 + 末尾 rest
   - 中間 rest は未サポート（将来検討）
 
+### Step 5: レビュー対応 — reducer エラーパス追加
+
+マルチペルソナレビュー（5ペルソナ + codex）で 6 レビュアー全員が ISSUES_FOUND。致命的問題4点を特定し対応:
+
+1. **グループ clone ID 矛盾** → clone ID をグローバル sequential 一意 ID に。複合キー不要、各 ResultMap は独立インスタンスなので雛形 template_id をキーに使える
+2. **reducer エラーパス欠如** → `(T, ReduceAction) -> T!ParseError` に変更。MoonBit の raise 構文で伝搬
+3. **defaults Append replace 矛盾** → 各ソースごと新 ResultMap（initial から）で parse し、最後に後勝ちマージ
+4. **ResultMap 型消去未定義** → PoC 検証で優先対応（次ステップ）
+
+### Step 6: Opts::Array セマンティクス明確化
+
+- Opts::Array = 通常のオプション群（名前マッチ）= List
+- serial/rest は明示マーク
+- tuple2 left fold パターンは不要になったため削除
+
+### Step 7: greedy + never() コンビネータ
+
+- `meta.greedy = true`: 消費ループで非 greedy 候補を除外するフィルタ。greedy 同士は通常通り競合
+- `never()`: 引数消費に使われると常に ParseError を投げるセンチネル
+
+```
+消費ループのマッチ判定:
+  candidates = マッチした全候補
+  if candidates.any(c => c.meta.greedy) {
+    candidates = candidates.filter(c => c.meta.greedy)
+  }
+  // 残った candidates で通常の消費ループ続行
+```
+
+### Step 8: `--` (double dash) の統一表現
+
+- 従来は tokenize で DoubleDash 特殊トークン化 → パーサ内ハードコード
+- 新設計: `flag(name="", greedy=true, global=true)` で `--` を通常の Opt として表現
+- serial + never() or rest との組み合わせで位置パラメータ消費を制御
+- `--exec` 的パターンにも同じ仕組みで対応可能
+
 ## 決定事項
 
 | 項目 | 決定 |
@@ -74,6 +110,12 @@ enum Opts {
 | グローバルオプション | meta.global フラグ。スコープ以下に伝搬 |
 | 位置パラメータ | serial（固定長）+ rest（可変長）+ 組み合わせ |
 | defaults | 後勝ち上書き。ResultMap コピーでスナップショット |
+| reducer エラーパス | `(T, ReduceAction) -> T!ParseError`。raise で伝搬 |
+| clone ID | グローバル sequential 一意 ID。複合キー不要 |
+| defaults マージ | 各ソースごと新 ResultMap + 後勝ちマージ |
+| greedy | `meta.greedy = true` — 非 greedy を除外するフィルタ |
+| never | `never()` — 常に ParseError のセンチネル |
+| `--` (double dash) | `flag(name="", greedy=true, global=true)` + serial で統一表現 |
 
 ## 不採用とした設計
 
@@ -85,6 +127,15 @@ enum Opts {
 
 ### Map[String, Array[String]] ベースの ParseResult
 不採用理由: trait object で heterogeneous collection が可能になった以上、String ベース中間表現は不要。ネームレス Opt の存在で名前キー Map は構造的に破綻。
+
+### tuple2 left fold 方式
+不採用理由: trait object + Opts enum でツリーを直接表現する設計に移行したため。tuple2 の左畳み込みによる n-ary 表現は不要。
+
+### `--` を DoubleDash 特殊トークンとする方式
+不採用理由: greedy + serial の組み合わせで `--` を通常の Opt として統一的に表現可能。特殊処理をなくすことでパーサがシンプルになり、`--exec` 等のパターンにも同じ仕組みで対応できる。
+
+### グループ clone 時に複合キー (template_id, clone_id) を使う方式
+不採用理由: clone ID がグローバルに一意なので複合キー不要。各グループの ResultMap は独立インスタンスであり、雛形の template_id をキーに使えば衝突しない。
 
 ## 未解決事項
 
@@ -127,3 +178,31 @@ enum Opts {
 > 2 result.command() -> Opt? Noneはトップレベルコマンドの場合とカレントresultがサブコマンド以外の場合
 > 3 opt.meta.globalフラグの導入が自然かな。ただしここでは仮にグローバルと言ってるが正確にはそのスコープ以下でのグローバルが正しい。
 > 4 位置パラメータは serial(o1,o2,o3)は順番消費、それ以外は単にrest(opt)で単一Optの可変長消費。あとはその組み合わせパターンもあり得るか。mv=serial(rest(file),dir) とか、zip=serial(file,rest(path)) みたいなパターン。中間restは未検討だが論理的には可能なパターンなら可能かもだが大変なので取り敢えず今は未サポートとして考えない。
+
+### レビュー対応 — clone ID の整理
+
+ユーザー:
+> cloneidを雛形横断のseqによる一意IDという位置付けにすれば組み合わせ不要か。
+
+### reducer エラーパス
+
+ユーザー:
+> reducerの->TをResult[T,E]にする？
+
+→ MoonBit の raise 構文 `-> T!ParseError` を採用。
+
+### greedy の着想
+
+ユーザー:
+> -- は常に引数処理を中断して以降を位置パラメータとするみたいな特殊な値としていたが、meta{name="", greedy=true, global=true} を持つOptと定義すると良いかも。
+> ここで greedy=true は、それが見つかった場合、他のマッチ候補があったとしても次の評価無しに最優先で次以降の引数を消費するという仕組み。
+
+### greedy のセマンティクス修正
+
+ユーザー:
+> greedy=trueはマッチした瞬間他のオプション解決をスキップは間違い。あまりないかもだが、greedyが2つ以上いた場合はgreedy同士で一つずつ引数消費していくいつもの消費ループになる＝複数マッチがあった場合にgreedyがいたらgreedy=falseを除外して消費ループを継続。という表現が実装に近いかな。
+
+### never() コンビネータ
+
+ユーザー:
+> hhの方にneverというのを新たに作ったのは greedy の最後が rest じゃなく固定長の場合は、元の引数消費に戻って欲しくないから、never() は引数消費に使われると常にParseErrorを投げる。
