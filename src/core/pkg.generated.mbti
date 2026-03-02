@@ -1,0 +1,166 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "kawaz/cli/src/core"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+
+// Errors
+pub(all) suberror ParseError {
+  UnknownOption(String)
+  MissingValue(String)
+  InvalidValue(name~ : String, value~ : String, reason~ : String)
+  MissingRequired(String)
+  AmbiguousOption(input~ : String, candidates~ : Array[String])
+  UnexpectedArgument(String)
+  ExclusiveViolation(Array[String])
+  Custom(String)
+}
+pub impl Show for ParseError
+
+// Types and methods
+pub(all) struct AliasEntry {
+  name : String
+  deprecated : Bool
+}
+pub impl Eq for AliasEntry
+pub impl Show for AliasEntry
+pub impl @debug.Debug for AliasEntry
+
+pub(all) struct ErasedNode {
+  meta : OptMeta
+  arity : Int
+  try_reduce : (ReduceAction, Int) -> ReduceResult? raise ParseError
+  commit_reduce : (ReduceResult) -> Unit
+  reset_to_initial : (Int) -> Unit
+  children : () -> Array[ErasedNode]
+}
+
+type ErasedRef
+pub fn ErasedRef::get_source(Self) -> ValueSource
+pub fn ErasedRef::new(source? : ValueSource) -> Self
+pub fn ErasedRef::set_source(Self, ValueSource) -> Unit
+
+pub(all) enum FlagInversion {
+  No
+  EnableDisable
+  Custom(String, String)
+}
+pub impl Eq for FlagInversion
+pub impl Show for FlagInversion
+pub impl @debug.Debug for FlagInversion
+
+pub(all) enum InitialValue[T] {
+  Val(T)
+  Thunk(() -> T)
+}
+pub fn[T] InitialValue::get(Self[T]) -> T
+
+pub(all) enum Kind {
+  Option
+  Command
+  Positional
+}
+pub impl Eq for Kind
+pub impl Show for Kind
+pub impl @debug.Debug for Kind
+
+pub(all) struct Opt[T] {
+  id : Int
+  initial : InitialValue[T]
+  reducer : (ReduceCtx[T]) -> T? raise ParseError
+  meta : OptMeta
+  getter : (Int) -> T
+}
+pub impl[T] Eq for Opt[T]
+pub impl[T] Hash for Opt[T]
+
+pub(all) struct OptMeta {
+  name : String
+  kind : Kind
+  help : String
+  shorts : Array[ShortEntry]
+  aliases : Array[AliasEntry]
+  inversion : FlagInversion?
+  env : String?
+  auto_env : Bool?
+  choices : Array[String]
+  value_name : String
+  required : Bool
+  visibility : Visibility
+  global : Bool
+  greedy : Bool
+}
+pub impl Show for OptMeta
+pub impl @debug.Debug for OptMeta
+
+pub(all) enum Opts {
+  Node(ErasedNode)
+  Array(Array[Opts])
+}
+
+pub(all) struct Parser {
+  mut seq : Int
+  refs : Map[Int, RefV]
+  clone_map : Map[Int, Int]
+}
+pub fn Parser::new() -> Self
+pub fn Parser::next_id(Self) -> Int
+
+pub(all) enum ReduceAction {
+  Value(String?)
+  Negate
+}
+pub impl Eq for ReduceAction
+pub impl Show for ReduceAction
+pub impl @debug.Debug for ReduceAction
+
+pub(all) struct ReduceCtx[T] {
+  current : T
+  action : ReduceAction
+}
+
+pub struct ReduceResult {
+  commit : () -> Unit
+}
+pub fn ReduceResult::new(commit~ : () -> Unit) -> Self
+pub fn ReduceResult::run(Self) -> Unit
+
+pub(all) enum RefV {
+  Value(ErasedRef)
+  Array(Array[ErasedRef])
+}
+
+pub(all) struct ShortEntry {
+  char : Char
+}
+pub impl Eq for ShortEntry
+pub impl Show for ShortEntry
+pub impl @debug.Debug for ShortEntry
+
+pub(all) enum ValueSource {
+  Initial
+  Default
+  Environment
+  CommandLine
+}
+pub impl Eq for ValueSource
+pub impl Show for ValueSource
+pub impl @debug.Debug for ValueSource
+
+pub(all) enum Visibility {
+  Visible
+  Advanced
+  Deprecated
+  Hidden
+}
+pub impl Eq for Visibility
+pub impl Show for Visibility
+pub impl @debug.Debug for Visibility
+
+// Type aliases
+
+// Traits
+

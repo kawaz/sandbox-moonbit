@@ -84,7 +84,7 @@ fn[T] Parser::register_opt(
   self : Parser,
   name : String,
   initial : T,
-  reducer : (T, ReduceAction) -> T?
+  reducer : (T, ReduceAction) -> T?,
 ) -> Opt[T] {
   let id = self.next_id()
   let cell : Ref[T] = { val: initial }
@@ -150,7 +150,7 @@ fn[T] Parser::register_opt(
 pub fn Parser::int(
   self : Parser,
   name~ : String,
-  default~ : Int = 0
+  default? : Int = 0,
 ) -> Opt[Int] {
   self.register_opt(name, default, fn(_cur, action) {
     match action {
@@ -172,7 +172,7 @@ pub fn Parser::int(
 pub fn Parser::flag(
   self : Parser,
   name~ : String,
-  default~ : Bool = false
+  default? : Bool = false,
 ) -> Opt[Bool] {
   self.register_opt(name, default, fn(_, action) {
     match action {
@@ -188,7 +188,7 @@ pub fn Parser::flag(
 pub fn Parser::str(
   self : Parser,
   name~ : String,
-  default~ : String = ""
+  default? : String = "",
 ) -> Opt[String] {
   self.register_opt(name, default, fn(_, action) {
     match action {
@@ -263,7 +263,7 @@ pub fn Parser::clone_group(self : Parser, template_id : Int) -> Int {
 pub fn Parser::get_group_ref(
   self : Parser,
   clone_id : Int,
-  opt_index : Int
+  opt_index : Int,
 ) -> ErasedRef {
   match self.refs.get(clone_id) {
     Some(Group(refs)) => refs[opt_index]

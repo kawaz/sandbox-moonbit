@@ -1,0 +1,26 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "kawaz/cli/src/combinators"
+
+import {
+  "kawaz/cli/src/core",
+}
+
+// Values
+pub fn flag(@core.Parser, name~ : String, help? : String, shorts? : Array[@core.ShortEntry], aliases? : Array[@core.AliasEntry], inversion? : @core.FlagInversion?, env? : String?, auto_env? : Bool?, visibility? : @core.Visibility, global? : Bool) -> (@core.Opt[Bool], @core.ErasedNode)
+
+pub fn int_opt(@core.Parser, name~ : String, help? : String, shorts? : Array[@core.ShortEntry], aliases? : Array[@core.AliasEntry], env? : String?, auto_env? : Bool?, value_name? : String, required? : Bool, visibility? : @core.Visibility, global? : Bool) -> (@core.Opt[Int?], @core.ErasedNode)
+
+pub fn opts(Array[@core.Opts]) -> @core.Opts
+
+pub fn positional(@core.Parser, name~ : String, help? : String, required? : Bool, visibility? : @core.Visibility) -> (@core.Opt[String?], @core.ErasedNode)
+
+pub fn string_opt(@core.Parser, name~ : String, help? : String, shorts? : Array[@core.ShortEntry], aliases? : Array[@core.AliasEntry], env? : String?, auto_env? : Bool?, choices? : Array[String], value_name? : String, required? : Bool, visibility? : @core.Visibility, global? : Bool) -> (@core.Opt[String?], @core.ErasedNode)
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+

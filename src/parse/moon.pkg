@@ -1,0 +1,8 @@
+import {
+  "kawaz/cli/src/core",
+  "kawaz/cli/src/resolve",
+}
+
+import {
+  "kawaz/cli/src/combinators",
+} for "test"
