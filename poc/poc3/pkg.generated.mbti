@@ -1,0 +1,59 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "kawaz/cli/poc/poc3"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+
+// Errors
+
+// Types and methods
+pub(all) struct SlotA[T] {
+  id : Int
+  default_value : T
+  slots : Map[Int, Ref[T]]
+}
+pub fn[T] SlotA::new(T) -> Self[T]
+
+pub(all) struct SlotB[T] {
+  id : Int
+  default_value : T
+  wrap : (T) -> Value
+  unwrap : (Value) -> T
+}
+pub fn SlotB::bool(Bool) -> Self[Bool]
+pub fn SlotB::int(Int) -> Self[Int]
+pub fn SlotB::str(String) -> Self[String]
+
+pub(all) struct StoreA {
+  id : Int
+  clone_fns : Map[Int, (Int, Int) -> Unit]
+}
+pub fn StoreA::clone(Self) -> Self
+pub fn[T] StoreA::get(Self, SlotA[T]) -> T
+pub fn StoreA::new() -> Self
+pub fn[T] StoreA::set(Self, SlotA[T], T) -> Unit
+
+pub(all) struct StoreB {
+  data : Map[Int, Value]
+}
+pub fn StoreB::clone(Self) -> Self
+pub fn[T] StoreB::get(Self, SlotB[T]) -> T
+pub fn StoreB::new() -> Self
+pub fn[T] StoreB::set(Self, SlotB[T], T) -> Unit
+
+pub(all) enum Value {
+  VInt(Int)
+  VBool(Bool)
+  VStr(String)
+}
+pub impl Eq for Value
+pub impl Show for Value
+pub impl @debug.Debug for Value
+
+// Type aliases
+
+// Traits
+

@@ -668,3 +668,9 @@ Step 0 → Step 1 → Step 2 → Step 3 → Step 4 → Step 5 → Step 6 → Ste
 3. 実装する（GREEN）
 4. `moon test` で全 pass 確認
 5. `just release-check` で品質確認
+
+---
+
+## プロジェクト構成
+
+`src/` はフラットにせず、パッケージ分割で管理する（`core/`, `parse/`, `resolve/`, `validate/`, `help/`, `complete/` 等）。MoonBit のテストファイル命名パターン（`foo_test.mbt`, `foo_wbtest.mbt` 等）により、機能ごとのファイル数が増加するため。具体的な分割粒度は実装進行に合わせて決定。参考: mizchi の MoonBit リポジトリ群のパッケージ分割構成。

@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "kawaz/cli/src/lib"
+package "kawaz/cli/poc/poc1-2"
 
 import {
   "moonbitlang/core/debug",

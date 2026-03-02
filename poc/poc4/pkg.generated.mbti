@@ -1,0 +1,50 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "kawaz/cli/poc/poc4"
+
+// Values
+
+// Errors
+
+// Types and methods
+pub(all) struct ErasedRef {
+  reduce_erased : (ReduceAction) -> Bool
+  reset : () -> Unit
+  clone_ref : () -> ErasedRef
+}
+
+pub(all) struct Opt[T] {
+  id : Int
+  name : String
+  getter : (Int) -> T
+  setter : (Int, T) -> Unit
+}
+
+pub(all) struct Parser {
+  mut seq : Int
+  refs : Map[Int, RefV]
+  clone_map : Map[Int, Int]
+}
+pub fn Parser::clone_group(Self, Int) -> Int
+pub fn Parser::flag(Self, name~ : String, default? : Bool) -> Opt[Bool]
+pub fn[T] Parser::get(Self, Opt[T]) -> T
+pub fn[T] Parser::get_clone(Self, Opt[T], Int) -> T
+pub fn Parser::get_group_ref(Self, Int, Int) -> ErasedRef
+pub fn Parser::int(Self, name~ : String, default? : Int) -> Opt[Int]
+pub fn Parser::new() -> Self
+pub fn Parser::register_group(Self, Array[Int]) -> Int
+pub fn Parser::str(Self, name~ : String, default? : String) -> Opt[String]
+
+pub(all) enum ReduceAction {
+  Value(String?)
+  Negate
+}
+
+pub(all) enum RefV {
+  Single(ErasedRef)
+  Group(Array[ErasedRef])
+}
+
+// Type aliases
+
+// Traits
+
