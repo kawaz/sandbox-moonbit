@@ -671,6 +671,173 @@ Step 0 → Step 1 → Step 2 → Step 3 → Step 4 → Step 5 → Step 6 → Ste
 
 ---
 
+## エラーメッセージ設計
+
+### 出力構造
+
+clap の4層構造を採用し、Swift ArgumentParser の Help 行を追加:
+
+```
+error: unknown option '--prot'
+  Help: --port <PORT>    ポート番号を指定 [default: 8080]
+  tip: a similar option exists: '--port'
+Usage: myapp serve [OPTIONS] <DIR>
+For more information, try '--help'.
+```
+
+### サジェスト
+
+- Levenshtein 距離ベースの did-you-mean（オプション名・サブコマンド名の両方）
+- bpaf 式のコンテキスト認識: "not expected in this context"（スコープ外のオプション検出）
+
+### セマンティックスタイリング
+
+5カテゴリで出力を装飾（ターミナル対応時）:
+
+| カテゴリ | 用途 | 例 |
+|---------|------|-----|
+| error | エラーラベル | `error:` |
+| valid | 正しい部分 | `myapp serve` |
+| invalid | 問題の部分 | `--prot` |
+| literal | リテラル値 | `'--port'` |
+| hint | 提案・補足 | `tip:`, `Help:` |
+
+### ParseError 設計
+
+```moonbit
+enum ParseError {
+  Usage(ErrorKind, String, ErrorContext)  // ユーザー起因エラー
+  Internal(String)                        // パーサ内部エラー
+}
+
+enum ErrorKind {
+  UnknownOption; UnexpectedArgument; MissingRequired; InvalidValue
+  ArgumentConflict; AmbiguousMatch; MissingValue; TooManyValues
+  MissingSubcommand; PositionalAsFlag; MultipleUse
+}
+```
+
+### 実装優先度
+
+1. **初期**: 基本エラー + 1行メッセージ（ErrorKind + メッセージ）
+2. **中期**: 4層構造 + Help 行 + did-you-mean サジェスト
+3. **後期**: セマンティックスタイリング + カスタマイズ API
+
+---
+
+## リザルト取得・構造化出力
+
+### ValueSource
+
+パース結果の値がどのソースから来たかを追跡:
+
+```moonbit
+enum ValueSource {
+  Initial         // Opt 定義時の initial 値（未指定）
+  Default(String) // default ソース名（"config", "profile" 等）
+  Environment     // 環境変数から
+  CommandLine     // CLI 引数から
+}
+```
+
+### API
+
+```moonbit
+result.get(opt)         // -> T        値を取得
+result.source(opt)      // -> ValueSource  値のソースを取得
+result.is_explicit(opt) // -> Bool     Initial/Default 以外なら true
+```
+
+### 構造化出力
+
+```moonbit
+// 全パース結果をフラット列挙（JSON 等のシリアライズはユーザー側）
+result.to_entries()  // -> Array[(String, String, ValueSource)]
+                     //    (name, value_str, source)
+```
+
+### サブコマンドディスパッチ
+
+- **プライマリ**: callback 方式（cmd 定義時にハンドラ登録）
+- **セカンダリ**: `result.command()` で手動分岐
+
+### defaults 優先順位（viper 参考）
+
+```
+CLI > 環境変数 > 設定ファイル > initial
+```
+
+各ソースごとに独立した ResultMap で parse し、後勝ちマージ（前述の defaults 設計と整合）。
+
+---
+
+## 環境変数連携
+
+### 3つの方式
+
+**1. 個別指定**: 特定のオプションに環境変数を明示バインド
+
+```moonbit
+let port = opt::int(name="port", env="PORT")
+// PORT=8080 → port の値が 8080 に
+```
+
+**2. プレフィックス連結**: コマンドのプレフィックスと個別 env を結合
+
+```moonbit
+let app = cmd("myapp", env_prefix="MYAPP")
+let port = opt::int(name="port", env="PORT")  // → MYAPP_PORT を参照
+```
+
+**3. auto-env**: 全フラグを自動バインド（デフォルト無効）
+
+```moonbit
+let app = cmd("myapp", env_prefix="MYAPP", auto_env=true)
+let port = opt::int(name="port")      // → MYAPP_PORT を自動参照
+let verbose = opt::flag(name="verbose") // → MYAPP_VERBOSE を自動参照
+```
+
+### サブコマンドのプレフィックスネスト
+
+```
+myapp serve --port 8080
+→ MYAPP_SERVE_PORT
+```
+
+### オーバーライド
+
+env でフルパス指定すればプレフィックスを無視:
+
+```moonbit
+let port = opt::int(name="port", env="CUSTOM_PORT")
+// env_prefix="MYAPP" でも MYAPP_PORT ではなく CUSTOM_PORT を参照
+```
+
+### Opt レベルの auto-env 制御
+
+auto-env は Parser/Cmd レベルだけでなく、各 Opt で `auto_env : Bool?` により個別に制御可能:
+
+```moonbit
+let app = cmd("myapp", env_prefix="MYAPP", auto_env=true)
+let port = opt::int(name="port")                           // None → 親に従う（MYAPP_PORT）
+let secret = opt::int(name="secret-key", auto_env=false)   // false → auto-env 無効
+let debug = opt::flag(name="debug", auto_env=true)         // true → 親が auto_env=false でも有効
+```
+
+- `None`（デフォルト）: 親 Cmd の設定を継承
+- `Some(true)`: この Opt は auto-env 有効（親が無効でも）
+- `Some(false)`: この Opt は auto-env 無効（親が有効でも）
+
+オプションスコープが明確に管理されるため、Opt 単位での粒度制御が自然に実現できる。
+
+### 安全性
+
+- auto-env はデフォルト無効（Cmd で明示的に `auto_env=true` が必要）
+- Opt レベルの `auto_env=false` で内部フラグの環境変数への漏洩を個別に防止
+- `visibility` 属性との連動: help/補完で非表示のオプションは auto-env も自動 Off（明示 `true` で上書き可）
+
+---
+
 ## プロジェクト構成
 
 `src/` はフラットにせず、パッケージ分割で管理する（`core/`, `parse/`, `resolve/`, `validate/`, `help/`, `complete/` 等）。MoonBit のテストファイル命名パターン（`foo_test.mbt`, `foo_wbtest.mbt` 等）により、機能ごとのファイル数が増加するため。具体的な分割粒度は実装進行に合わせて決定。参考: mizchi の MoonBit リポジトリ群のパッケージ分割構成。
