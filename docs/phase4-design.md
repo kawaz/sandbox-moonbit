@@ -98,25 +98,41 @@ pub(all) enum ReduceAction {
 } derive(Eq, Show, Debug)
 ```
 
-### reducer 統一パターン
+### ReduceCtx[T] と reducer 統一パターン
 
-全ての OptKind は `(T, ReduceAction) -> T?!ParseError` の reducer で表現される。OptKind enum は不要。
+全ての OptKind は `(ReduceCtx[T]) -> T?!ParseError` の reducer で表現される。OptKind enum は不要。
+
+```moonbit
+struct ReduceCtx[T] {
+  current : T              // 現在の累積値
+  action : ReduceAction    // 今回のアクション
+  // 以下は内部の ParseContext に委譲（将来追加してもシグネチャ不変）
+}
+
+// ParseContext 委譲メソッド（消費ループ中のみ有効）
+fn ReduceCtx::get[T, U](self, opt: Opt[U]) -> U?       // 他 Opt の途中結果
+fn ReduceCtx::is_set[T](self, opt: Opt[_]) -> Bool      // 消費済みか
+fn ReduceCtx::source[T](self, opt: Opt[_]) -> ValueSource?
+// 将来拡張例（シグネチャ不変で追加可能）:
+// fn ReduceCtx::ahead[T](self, count: Int) -> Array[String]  // 未消費の後続引数を先読み（中間rest等）
+```
 
 | 種別 | initial | reducer |
 |------|---------|---------|
-| Flag | `false` | `(_, Value(None)) -> Some(true)`, `(_, Negate) -> Some(initial)` |
-| Count | `0` | `(n, Value(None)) -> Some(n + 1)`, `(_, Negate) -> Some(initial)` |
-| Single | `None` | `(_, Value(Some(s))) -> Some(Some(parse!(s)))`, `(_, Negate) -> Some(initial)` |
-| Append | `[]` | `(arr, Value(Some(s))) -> Some([...arr, parse!(s)])`, `(_, Negate) -> Some(initial)` |
-| OptionalValue | `None` | `(_, Value(None)) -> Some(Some(implicit))`, `(_, Value(Some(s))) -> Some(Some(s))` |
+| Flag | `false` | `(ctx) -> if ctx.action == Value(None) { Some(true) } else { Some(initial) }` |
+| Count | `0` | `(ctx) -> if ctx.action == Value(None) { Some(ctx.current + 1) } else { Some(initial) }` |
+| Single | `None` | `(ctx) -> match ctx.action { Value(Some(s)) => Some(Some(parse!(s))); Negate => Some(initial); _ => None }` |
+| Append | `[]` | `(ctx) -> match ctx.action { Value(Some(s)) => Some([..ctx.current, parse!(s)]); Negate => Some(initial); _ => None }` |
+| OptionalValue | `None` | `(ctx) -> match ctx.action { Value(None) => Some(Some(implicit)); Value(Some(s)) => Some(Some(s)); _ => None }` |
 
 プリミティブ型コンビネータは custom の特殊化: `opt::int` = `opt::custom(parse_int)`
 
-Design rationale: 旧設計では `ReduceContext` が `value`, `initial`, `defaults`, `explicitly_set` を
-運搬していた。新設計では Opt[T] は immutable で結果は ResultMap に保持されるため、reducer の引数は
-`(T, ReduceAction) -> T?!ParseError` だけで十分。現在値は ResultMap からルックアップし、初期値は `self.initial` で参照できる。
-エラーパスは MoonBit の raise 構文で伝搬する。parse!(s) が失敗した場合、reducer から ParseError が raise される。
-reducer の戻り値は3値: None（マッチしない = 候補脱落）、Some(T)（消費成功）、raise ParseError（エラー）。
+Design rationale: reducer のシグネチャを `(ReduceCtx[T]) -> T?!ParseError` の1引数に統一する。
+旧設計の `(T, ReduceAction)` 2引数、その後の `(T, ReduceAction, ParseContext)` 3引数を経て、
+**後方互換性**を重視した最終形。ReduceCtx に新しいメソッドを追加しても既存 reducer は壊れない。
+MoonBit ではクロージャにラベル付き/オプション引数が使えない（言語制約）ため、struct ラッパーが最適解。
+エラーパスは MoonBit の raise 構文で伝搬する。`parse!(s)` が失敗した場合、reducer から ParseError が raise される。
+reducer の戻り値は3値: `None`（マッチしない = 候補脱落）、`Some(T)`（消費成功）、raise `ParseError`（エラー）。
 消費ループの step 3 で各候補の reducer に引数を渡し、None を返すものを除去する仕組みの根幹。
 例: flag は常に Some(true)、int に "abc" → None、file に存在しないパス → None、since に "1h3m" → Some(Duration)。
 
@@ -501,6 +517,7 @@ pub(all) struct OptMeta {
 3. **completion の詳細設計** — セルフ呼び出し動的ヒント方式は確定。詳細は後日
 4. **ヘルプ生成** — reducer からヘルプテキストをどう生成するか
 5. **kind の区別のユーザー API 表現** — `long:` vs `name:` vs `kind: Option` 等
+6. **複数値パラメータは常に Array** — `aliases`, `shorts` 等は MoonBit コアでは常に `Array` で受ける。ターゲット別ラッパー（TS なら `string | string[]` 等）で各言語の慣用的 DX を提供
 
 ### コア設計の検討中課題: Parser struct + getter 方式
 
@@ -570,8 +587,8 @@ groups[0].get(port)                  // port.getter(groups[0].id)
 - **did you mean? サジェスト** — Levenshtein 距離によるスペルミス候補提示
 - **エラーメッセージ品質** — 既存最高峰以上を目指す
 - **中間 rest 対応** — `mv file... dir` パターン（rest の後に固定パラメータ）
-- **mutual exclusion** — 排他オプション
-- **dependent options** — 条件付きオプション有効化
+- **mutual exclusion** — 排他オプション（後述の詳細設計参照）
+- **dependent options** — 条件付きオプション有効化（後述の詳細設計参照）
 - **リザルト取得サポート** — シンプル JSON 出力等。バリデーションはユーザー側に委ねる思想
 - **ヘルプ生成の詳細設計**
 - **補完生成の詳細設計**
@@ -771,6 +788,81 @@ CLI > 環境変数 > 設定ファイル > initial
 
 ---
 
+## Mutual Exclusion（排他オプション）
+
+同時に使えないオプション群を宣言する。
+
+```moonbit
+let json = opt::flag(name="json")
+let csv = opt::flag(name="csv")
+let yaml = opt::flag(name="yaml")
+
+// 最大1つ（どれも指定しなくてもOK）
+let format = exclusive([json, csv, yaml])
+
+// ちょうど1つ（必須）
+let format = exclusive([json, csv, yaml], required=true)
+```
+
+### バリデーションタイミング
+
+- **消費時**: 同グループの別オプションが既に消費済みなら即 `ParseError(Exclusive)`（早期確定）
+- エラー: `error: --csv cannot be used with --json`
+
+### exclusive の戻り値
+
+`exclusive()` はバリデーション制約を Parser に登録するだけ。各 Opt の値は個別に `parser.get(json)` 等で取得する。
+
+---
+
+## Dependent Options（条件付きオプション）
+
+あるオプションが別のオプションの存在・値に依存する関係を宣言する。
+
+```moonbit
+let ssl = opt::flag(name="ssl")
+let ssl_cert = opt::string(name="ssl-cert", requires=[ssl])
+
+let format = opt::string(name="format", choices=["json", "csv", "tsv"])
+// 簡易: 文字列一致
+let delimiter = opt::string(name="delimiter", requires=[Require(format, value="csv")])
+// カスタム述語: T が String とは限らないケースにも対応
+let delimiter = opt::string(name="delimiter", requires=[RequireWhen(format, fn(v) { v != "json" })])
+```
+
+### バリデーションタイミング
+
+- **基本は finalize 時**: まだ入力途中かもしれないので、全引数消費後にチェック
+- **早期確定可能なケース**: 消費時点で依存先の値が確定済みなら早期エラーも可
+- エラー: `error: --delimiter requires --format=csv`
+
+### 補完連携
+
+- `--delimiter` 補完時に依存元 `--format csv` が未指定なら description に警告表示
+- 依存元が一意（`--format csv` のみ）なら自動展開も検討
+
+### ReduceCtx 経由の途中参照
+
+dependent options の reducer 内で依存先の値を参照可能:
+
+```moonbit
+let delimiter = opt::custom(
+  name="delimiter",
+  initial=",",
+  reducer=fn(ctx) {
+    // format の現在値を参照して挙動を変える
+    let fmt = ctx.get(format)
+    match (ctx.action, fmt) {
+      (Value(Some(s)), Some("csv")) => Some(s)
+      (Value(_), _) => raise ParseError::DependencyNotMet("--delimiter requires --format=csv")
+      _ => None
+    }
+  },
+)
+```
+
+---
+
 ## 環境変数連携
 
 ### 3つの方式
@@ -835,6 +927,48 @@ let debug = opt::flag(name="debug", auto_env=true)         // true → 親が au
 - auto-env はデフォルト無効（Cmd で明示的に `auto_env=true` が必要）
 - Opt レベルの `auto_env=false` で内部フラグの環境変数への漏洩を個別に防止
 - `visibility` 属性との連動: help/補完で非表示のオプションは auto-env も自動 Off（明示 `true` で上書き可）
+
+---
+
+## Visibility — ヘルプ・補完の表示制御
+
+Opt / Cmd に設定する表示レベル。手入力すれば全て動作する（visibility はあくまで発見性の制御）。
+
+```
+enum Visibility {
+  Visible      // デフォルト
+  Advanced     // help ✗, 補完 ✓（パワーユーザー向け）
+  Deprecated   // help ✓（deprecated 注記）, 補完 ✗
+  Hidden       // help ✗, 補完 ✗
+}
+```
+
+| | help | help-all | 補完 | 手入力 |
+|--|------|----------|------|--------|
+| Visible | ✓ | ✓ | ✓ | ✓ |
+| Advanced | ✗ | ✓ | ✓ | ✓ |
+| Deprecated | ✓ (注記) | ✓ (注記) | ✗ | ✓ (警告) |
+| Hidden | ✗ | ✓ | ✗ | ✓ |
+
+### help-all
+
+Parser レベルで `help_all=true` を有効にすると `--help-all` フラグが自動追加される。
+指定時は Hidden/Advanced を含む全エントリをヘルプに表示（git の全サブコマンド表示と同パターン）。
+
+### ショート別名の扱い
+
+ショート別名（`-p` 等）は独立した Opt ではなく、ロングオプションのヘルプ行に `-p, --port` と併記される。
+補完に出さないのは標準的な挙動であり、visibility 設定の対象外。
+
+### deprecated 別名の扱い
+
+`aliases` に `deprecated=true` を付けた別名はヘルプに deprecated 注記付きで表示、補完には出さない。
+手入力時は動作するが「`--old-name` is deprecated, use `--new-name`」の警告を出す。
+
+### auto-env との連動
+
+- `Hidden` / `Advanced` → auto-env デフォルト Off（`auto_env=true` で明示上書き可）
+- `Visible` / `Deprecated` → 親 Cmd の auto-env 設定に従う
 
 ---
 
