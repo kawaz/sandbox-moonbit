@@ -24,7 +24,7 @@ sandbox-moonbit で育てて別リポジトリに分離したもの。
 | プロジェクト | 分離先 | 元ワークスペース | 備考 |
 |---|---|---|---|
 | CLI引数パーサ | kawaz/kuu.mbt（予定） | wip-cli-parser | 設計・PoC完了。28パーサ調査+Phase4設計書あり |
-| shimux | kawaz/shimux（Go実装） | — | MoonBit移植検討から独立。調査結果は shimux 側に |
+| shimux | kawaz/shimux | — | MoonBit移植検討から独立。調査結果は shimux 側に |
 
 ## 過去のワークスペース（削除済み）
 
