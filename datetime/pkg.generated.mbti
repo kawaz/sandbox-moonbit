@@ -1,0 +1,45 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "kawaz/datetime"
+
+// Values
+pub fn default_parse_datetime(String) -> Int64?
+
+pub fn format_offset(Int64) -> String
+
+pub fn parse(String, context~ : ParseContext, now~ : Int64, swap? : Bool, parse_datetime? : (String) -> Int64?) -> TimeRange raise ParseError
+
+// Errors
+pub(all) suberror ParseError {
+  ParseError(String)
+}
+pub impl Eq for ParseError
+pub impl Show for ParseError
+
+// Types and methods
+pub(all) enum ParseContext {
+  Since
+  Until
+  Range
+}
+pub impl Eq for ParseContext
+pub impl Show for ParseContext
+
+pub(all) struct TimeRange {
+  since : TimeSpec?
+  until : TimeSpec?
+}
+pub impl Eq for TimeRange
+pub impl Show for TimeRange
+
+pub(all) enum TimeSpec {
+  Absolute(Int64)
+  Relative(Int64, Int64)
+}
+pub fn TimeSpec::to_cli_string(Self) -> String
+pub impl Eq for TimeSpec
+pub impl Show for TimeSpec
+
+// Type aliases
+
+// Traits
+
