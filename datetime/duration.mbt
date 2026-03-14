@@ -7,34 +7,37 @@ fn parse_duration(input : String, start : Int, end : Int) -> Int64 raise ParseEr
   let mut found = false
   while pos < end {
     let num_start = pos
-    while pos < end && input[pos] >= '0' && input[pos] <= '9' {
+    while pos < end && char_in_range(input, pos, '0', '9') {
       pos = pos + 1
     }
     if pos == num_start {
       raise ParseError(
-        "expected digit at position \{pos}, got '\{input[pos]}'",
+        "expected digit at position \{pos}",
       )
     }
     let num = parse_int(input, num_start, pos)
-    if pos >= end {
+    guard pos < end else {
       raise ParseError("expected unit (s/m/h/d/w) after number")
     }
-    let unit = input[pos]
+    let unit = input[pos].to_int()
     pos = pos + 1
-    let multiplier : Int64 = match unit {
-      's' => 1L
-      'm' => 60L
-      'h' => 3600L
-      'd' => 86400L
-      'w' => 604800L
-      _ => raise ParseError("unknown unit '\{unit}', expected s/m/h/d/w")
+    let multiplier : Int64 = if unit == 's'.to_int() {
+      1L
+    } else if unit == 'm'.to_int() {
+      60L
+    } else if unit == 'h'.to_int() {
+      3600L
+    } else if unit == 'd'.to_int() {
+      86400L
+    } else if unit == 'w'.to_int() {
+      604800L
+    } else {
+      raise ParseError("unknown unit, expected s/m/h/d/w")
     }
     total = total + num.to_int64() * multiplier
     found = true
   }
-  if not(found) {
-    raise ParseError("empty duration")
-  }
+  guard found else { raise ParseError("empty duration") }
   total
 }
 
@@ -51,32 +54,33 @@ fn parse_int(s : String, start : Int, end : Int) -> Int {
 /// Examples: 300 → "5m", 3600 → "1h", 5400 → "1h30m", 0 → "0s"
 fn format_duration_unsigned(seconds : Int64) -> String {
   let mut remaining = seconds
-  let mut buf = StringBuilder::new()
+  let buf = StringBuilder::new()
+  let mut has_output = false
   if remaining >= 604800L {
-    let weeks = remaining / 604800L
-    buf.write_string(weeks.to_string())
+    buf.write_string((remaining / 604800L).to_string())
     buf.write_char('w')
     remaining = remaining % 604800L
+    has_output = true
   }
   if remaining >= 86400L {
-    let days = remaining / 86400L
-    buf.write_string(days.to_string())
+    buf.write_string((remaining / 86400L).to_string())
     buf.write_char('d')
     remaining = remaining % 86400L
+    has_output = true
   }
   if remaining >= 3600L {
-    let hours = remaining / 3600L
-    buf.write_string(hours.to_string())
+    buf.write_string((remaining / 3600L).to_string())
     buf.write_char('h')
     remaining = remaining % 3600L
+    has_output = true
   }
   if remaining >= 60L {
-    let minutes = remaining / 60L
-    buf.write_string(minutes.to_string())
+    buf.write_string((remaining / 60L).to_string())
     buf.write_char('m')
     remaining = remaining % 60L
+    has_output = true
   }
-  if remaining > 0L || buf.is_empty() {
+  if remaining > 0L || not(has_output) {
     buf.write_string(remaining.to_string())
     buf.write_char('s')
   }
@@ -95,35 +99,35 @@ pub fn format_offset(offset : Int64) -> String {
   }
 }
 
-///| Check if position range contains a duration pattern: digits followed by unit char.
-fn is_duration_char(c : Char) -> Bool {
-  c == 's' || c == 'm' || c == 'h' || c == 'd' || c == 'w'
+///| Check if char at position is a duration unit (s/m/h/d/w).
+fn is_duration_char_at(s : String, pos : Int) -> Bool {
+  let c = s[pos].to_int()
+  c == 's'.to_int() ||
+  c == 'm'.to_int() ||
+  c == 'h'.to_int() ||
+  c == 'd'.to_int() ||
+  c == 'w'.to_int()
 }
 
 ///| Find the start of trailing duration suffix in a string.
 /// E.g., "2024-01-01T12:00:00Z-5m" → returns index of '-' before "5m".
 /// Returns `end` if no trailing duration found.
 fn find_trailing_duration(input : String, start : Int, end : Int) -> Int {
-  // Scan backwards: expect (unit digit+ [+-])*
   let mut pos = end
   while pos > start {
-    // Expect unit char
-    if pos - 1 >= start && is_duration_char(input[pos - 1]) {
+    if pos - 1 >= start && is_duration_char_at(input, pos - 1) {
       pos = pos - 1
-      // Expect digits
       let unit_pos = pos
-      while pos > start && input[pos - 1] >= '0' && input[pos - 1] <= '9' {
+      while pos > start && char_in_range(input, pos - 1, '0', '9') {
         pos = pos - 1
       }
       if pos == unit_pos {
-        // No digits before unit → not a duration suffix
         return end
       }
-      // Expect optional +/- sign
-      if pos > start && (input[pos - 1] == '+' || input[pos - 1] == '-') {
+      if pos > start &&
+        (char_eq(input, pos - 1, '+') || char_eq(input, pos - 1, '-')) {
         pos = pos - 1
       }
-      // Continue scanning for more duration components
     } else {
       break
     }

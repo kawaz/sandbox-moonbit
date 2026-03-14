@@ -1,82 +1,70 @@
+///| Internal error type for ISO 8601 parsing failures.
+priv suberror Iso8601Fail
+
 ///| Default ISO 8601 parser (minimal: YYYY-MM-DDThh:mm:ssZ).
 /// Returns epoch seconds or None.
-/// Can be replaced via `ParseOptions.parse_datetime` for custom formats.
+/// Can be replaced via `parse_datetime~` parameter for custom formats.
 pub fn default_parse_datetime(input : String) -> Int64? {
-  // Minimal ISO 8601: "YYYY-MM-DD" or "YYYY-MM-DDThh:mm:ss" with optional Z/offset
+  Some(parse_iso8601(input) catch { _ => return None })
+}
+
+///| Parse ISO 8601 string, raising on any failure.
+fn parse_iso8601(input : String) -> Int64 raise Iso8601Fail {
   let len = input.length()
-  if len < 10 {
-    return None
-  }
-  // Parse date part: YYYY-MM-DD
-  let year = parse_int_opt(input, 0, 4)?
-  if input[4] != '-' {
-    return None
-  }
-  let month = parse_int_opt(input, 5, 7)?
-  if input[7] != '-' {
-    return None
-  }
-  let day = parse_int_opt(input, 8, 10)?
-  if month < 1 || month > 12 || day < 1 || day > 31 {
-    return None
+  guard len >= 10 else { raise Iso8601Fail }
+  let year = expect_digits(input, 0, 4)
+  guard char_eq(input, 4, '-') else { raise Iso8601Fail }
+  let month = expect_digits(input, 5, 7)
+  guard char_eq(input, 7, '-') else { raise Iso8601Fail }
+  let day = expect_digits(input, 8, 10)
+  guard month >= 1 && month <= 12 && day >= 1 && day <= 31 else {
+    raise Iso8601Fail
   }
   let mut hour = 0
   let mut minute = 0
   let mut second = 0
   let mut tz_offset_seconds = 0
   if len > 10 {
-    if input[10] != 'T' && input[10] != 't' {
-      return None
+    guard char_eq(input, 10, 'T') || char_eq(input, 10, 't') else {
+      raise Iso8601Fail
     }
-    if len < 19 {
-      return None
-    }
-    hour = parse_int_opt(input, 11, 13)?
-    if input[13] != ':' {
-      return None
-    }
-    minute = parse_int_opt(input, 14, 16)?
-    if input[16] != ':' {
-      return None
-    }
-    second = parse_int_opt(input, 17, 19)?
-    // Parse timezone
+    guard len >= 19 else { raise Iso8601Fail }
+    hour = expect_digits(input, 11, 13)
+    guard char_eq(input, 13, ':') else { raise Iso8601Fail }
+    minute = expect_digits(input, 14, 16)
+    guard char_eq(input, 16, ':') else { raise Iso8601Fail }
+    second = expect_digits(input, 17, 19)
     if len > 19 {
-      if input[19] == 'Z' || input[19] == 'z' {
+      if char_eq(input, 19, 'Z') || char_eq(input, 19, 'z') {
         tz_offset_seconds = 0
-      } else if input[19] == '+' || input[19] == '-' {
-        // +HH:MM or +HHMM
-        let tz_sign = if input[19] == '+' { 1 } else { -1 }
-        if len >= 25 && input[22] == ':' {
-          let tz_h = parse_int_opt(input, 20, 22)?
-          let tz_m = parse_int_opt(input, 23, 25)?
+      } else if char_eq(input, 19, '+') || char_eq(input, 19, '-') {
+        let tz_sign = if char_eq(input, 19, '+') { 1 } else { -1 }
+        if len >= 25 && char_eq(input, 22, ':') {
+          let tz_h = expect_digits(input, 20, 22)
+          let tz_m = expect_digits(input, 23, 25)
           tz_offset_seconds = tz_sign * (tz_h * 3600 + tz_m * 60)
         } else if len >= 24 {
-          let tz_h = parse_int_opt(input, 20, 22)?
-          let tz_m = parse_int_opt(input, 22, 24)?
+          let tz_h = expect_digits(input, 20, 22)
+          let tz_m = expect_digits(input, 22, 24)
           tz_offset_seconds = tz_sign * (tz_h * 3600 + tz_m * 60)
         } else {
-          return None
+          raise Iso8601Fail
         }
       }
     }
   }
-  // Convert to epoch seconds
   let epoch = datetime_to_epoch(year, month, day, hour, minute, second)
-  Some(epoch - tz_offset_seconds.to_int64())
+  epoch - tz_offset_seconds.to_int64()
 }
 
-///| Parse int, returning None on failure.
-fn parse_int_opt(s : String, start : Int, end : Int) -> Int? {
+///| Parse digits from input[start..end], raising on non-digit.
+fn expect_digits(s : String, start : Int, end : Int) -> Int raise Iso8601Fail {
   let mut result = 0
   for i = start; i < end; i = i + 1 {
-    let c = s[i]
-    if c < '0' || c > '9' {
-      return None
-    }
-    result = result * 10 + (c.to_int() - 0x30)
+    guard char_in_range(s, i, '0', '9') else { raise Iso8601Fail }
+    result = result * 10 + (s[i].to_int() - 0x30)
   }
-  Some(result)
+  result
 }
 
 ///| Convert date/time components to Unix epoch seconds.
@@ -88,14 +76,12 @@ fn datetime_to_epoch(
   minute : Int,
   second : Int
 ) -> Int64 {
-  // Days from 1970-01-01 to the given date
   let mut y = year
   let mut m = month
   if m <= 2 {
     y = y - 1
     m = m + 12
   }
-  // Days from epoch using a standard formula
   let era = y / 400
   let yoe = y - era * 400
   let doy = (153 * (m - 3) + 2) / 5 + day - 1
@@ -113,11 +99,11 @@ fn is_timestamp_prefix(input : String, pos : Int, end : Int) -> Bool {
     return false
   }
   for i = pos; i < pos + 4; i = i + 1 {
-    if input[i] < '0' || input[i] > '9' {
+    if not(char_in_range(input, i, '0', '9')) {
       return false
     }
   }
-  input[pos + 4] == '-'
+  char_eq(input, pos + 4, '-')
 }
 
 ///| Parse one part (one side of `~`).
@@ -126,7 +112,6 @@ fn parse_part(
   input : String,
   start : Int,
   end : Int,
-  now : Int64,
   parse_dt : (String) -> Int64?
 ) -> RawPart? raise ParseError {
   if start >= end {
@@ -135,45 +120,38 @@ fn parse_part(
   let mut pos = start
   // Check for @ prefix
   let mut is_absolute = false
-  if input[pos] == '@' {
+  if char_eq(input, pos, '@') {
     is_absolute = true
     pos = pos + 1
     if pos >= end {
-      // Just "@" → Absolute(now, 0)
       return Some(
-        RawPart::{ is_absolute: true, base_epoch: None, duration: 0L, sign: Unsigned },
+        { is_absolute: true, base_epoch: None, duration: 0L, sign: Unsigned },
       )
     }
   }
   // Check for timestamp literal
   if is_timestamp_prefix(input, pos, end) {
-    // Find where the timestamp ends and duration suffix begins
     let dur_start = find_trailing_duration(input, pos, end)
-    // Extract timestamp string
-    let ts_str = input.substring(start=pos, end=dur_start)
+    let ts_str = input[pos:dur_start].to_string()
     let base_epoch = match parse_dt(ts_str) {
       Some(epoch) => epoch
       None =>
         raise ParseError("failed to parse datetime: '\{ts_str}'")
     }
-    // Parse trailing duration if present
     let mut duration : Int64 = 0
     let mut sign : Sign = Unsigned
     if dur_start < end {
-      let c = input[dur_start]
-      if c == '+' {
+      if char_eq(input, dur_start, '+') {
         sign = Plus
-      } else if c == '-' {
+      } else if char_eq(input, dur_start, '-') {
         sign = Minus
       } else {
-        raise ParseError(
-          "expected +/- after timestamp, got '\{c}'",
-        )
+        raise ParseError("expected +/- after timestamp")
       }
       duration = parse_duration(input, dur_start + 1, end)
     }
     return Some(
-      RawPart::{
+      {
         is_absolute: true,
         base_epoch: Some(base_epoch),
         duration,
@@ -184,11 +162,10 @@ fn parse_part(
   // Parse optional sign
   let mut sign : Sign = Unsigned
   if pos < end {
-    let c = input[pos]
-    if c == '+' {
+    if char_eq(input, pos, '+') {
       sign = Plus
       pos = pos + 1
-    } else if c == '-' {
+    } else if char_eq(input, pos, '-') {
       sign = Minus
       pos = pos + 1
     }
@@ -199,9 +176,7 @@ fn parse_part(
   } else {
     0L
   }
-  Some(
-    RawPart::{ is_absolute, base_epoch: None, duration, sign },
-  )
+  Some({ is_absolute, base_epoch: None, duration, sign })
 }
 
 ///| Compute epoch for a raw part resolved against a base time.
@@ -212,7 +187,7 @@ fn resolve_epoch(part : RawPart, base : Int64) -> Int64 {
   }
   let signed_offset = match part.sign {
     Plus => part.duration
-    _ => -part.duration // Unsigned defaults to minus
+    _ => -part.duration
   }
   actual_base + signed_offset
 }
@@ -221,8 +196,7 @@ fn resolve_epoch(part : RawPart, base : Int64) -> Int64 {
 fn stored_offset(part : RawPart) -> Int64 {
   match part.sign {
     Plus => part.duration
-    Minus => -part.duration
-    Unsigned => -part.duration
+    Minus | Unsigned => -part.duration
   }
 }
 
@@ -239,40 +213,44 @@ fn make_timespec(part : RawPart, epoch : Int64) -> TimeSpec {
 ///
 /// Parses a time spec string into a `TimeRange`.
 ///
-/// # Examples
+/// # Parameters
 ///
-/// ```
-/// parse("5m~3m", { context: Since, now: 1000, swap: false, parse_datetime: default_parse_datetime })
-/// ```
-pub fn parse(input : String, options : ParseOptions) -> TimeRange raise ParseError {
-  let now = options.now
-  let ctx = options.context
-  let parse_dt = options.parse_datetime
-  // Find ~ separator
+/// - `input` - The time spec string to parse
+/// - `context~` - Parse context (Since/Until/Range)
+/// - `now~` - Current time as Unix epoch seconds
+/// - `swap~` - If true, swap since/until when since > until (default: false)
+/// - `parse_datetime~` - Custom datetime parser (default: built-in ISO 8601)
+pub fn parse(
+  input : String,
+  context~ : ParseContext,
+  now~ : Int64,
+  swap~ : Bool = false,
+  parse_datetime~ : (String) -> Int64? = default_parse_datetime
+) -> TimeRange raise ParseError {
+  let parse_dt = parse_datetime
   let tilde = find_char(input, '~', 0, input.length())
   match tilde {
     None => {
-      // Single value, no range
-      let part = parse_part(input, 0, input.length(), now, parse_dt)
+      let part = parse_part(input, 0, input.length(), parse_dt)
       match part {
         None => raise ParseError("empty input")
         Some(raw) => {
           let epoch = resolve_epoch(raw, now)
           let ts = make_timespec(raw, epoch)
-          match ctx {
-            Since => TimeRange::{ since: Some(ts), until: None }
-            Until => TimeRange::{ since: None, until: Some(ts) }
+          match context {
+            Since => { since: Some(ts), until: None }
+            Until => { since: None, until: Some(ts) }
             Range => raise ParseError("range context requires ~ separator")
           }
         }
       }
     }
     Some(tilde_pos) => {
-      let since_raw = parse_part(input, 0, tilde_pos, now, parse_dt)
+      let since_raw = parse_part(input, 0, tilde_pos, parse_dt)
       let until_raw = parse_part(
-        input, tilde_pos + 1, input.length(), now, parse_dt,
+        input, tilde_pos + 1, input.length(), parse_dt,
       )
-      resolve_range(since_raw, until_raw, ctx, now, options.swap)
+      resolve_range(since_raw, until_raw, context, now, swap)
     }
   }
 }
@@ -285,43 +263,33 @@ fn resolve_range(
   now : Int64,
   swap : Bool
 ) -> TimeRange {
-  // Handle empty parts (e.g., "~" → both empty → both Relative(now, 0))
+  let empty_part : RawPart = {
+    is_absolute: false,
+    base_epoch: None,
+    duration: 0L,
+    sign: Unsigned,
+  }
   let sr = match since_raw {
     Some(r) => r
-    None =>
-      RawPart::{ is_absolute: false, base_epoch: None, duration: 0L, sign: Unsigned }
+    None => empty_part
   }
   let ur = match until_raw {
     Some(r) => r
-    None =>
-      RawPart::{ is_absolute: false, base_epoch: None, duration: 0L, sign: Unsigned }
+    None => empty_part
   }
-  // Determine the anchor relationship
   let mixed = sr.is_absolute != ur.is_absolute
   let both_absolute = sr.is_absolute && ur.is_absolute
-  let both_relative = not(sr.is_absolute) && not(ur.is_absolute)
-  // Resolve based on rules:
-  // 1. Mixed (@/non-@): absolute side is anchor, semantic defaults apply
-  // 2. Both absolute (@@): resolve independently against now (no anchor relationship)
-  // 3. Both relative: depends on context
-  //    - Range: independent (no semantic defaults)
-  //    - Since/Until: anchored (sign is cosmetic, direction forced by s<=u)
   let (since_ts, until_ts) = if mixed {
-    resolve_mixed(sr, ur, ctx, now)
+    resolve_mixed(sr, ur, now)
   } else if both_absolute {
-    // Both @: each resolves independently against now with default minus.
-    // "Option side resolves first, other resolves by semantic default"
-    // → in practice, both use default minus independently.
     resolve_independent(sr, ur, now)
   } else {
-    // Both relative
     match ctx {
       Range => resolve_independent(sr, ur, now)
       Since => resolve_anchored(sr, ur, anchor_is_since=true, now)
       Until => resolve_anchored(sr, ur, anchor_is_since=false, now)
     }
   }
-  // Optionally swap if since > until
   let (final_since, final_until) = if swap {
     let s_epoch = timespec_epoch(since_ts)
     let u_epoch = timespec_epoch(until_ts)
@@ -333,10 +301,10 @@ fn resolve_range(
   } else {
     (since_ts, until_ts)
   }
-  TimeRange::{ since: Some(final_since), until: Some(final_until) }
+  { since: Some(final_since), until: Some(final_until) }
 }
 
-///| Extract epoch from a TimeSpec.
+///|
 fn timespec_epoch(ts : TimeSpec) -> Int64 {
   match ts {
     Absolute(epoch) => epoch
@@ -344,29 +312,23 @@ fn timespec_epoch(ts : TimeSpec) -> Int64 {
   }
 }
 
-///| Resolve mixed (one absolute, one relative).
-/// Absolute side is anchor. Semantic defaults apply for unsigned non-anchor.
+///| Resolve mixed (one @, one non-@).
 fn resolve_mixed(
   sr : RawPart,
   ur : RawPart,
-  ctx : ParseContext,
   now : Int64
 ) -> (TimeSpec, TimeSpec) {
   if sr.is_absolute {
-    // Since is absolute (anchor)
     let since_epoch = resolve_epoch(sr, now)
     let since_ts = make_timespec(sr, since_epoch)
-    // Until is relative to since
     let until_epoch = resolve_non_anchor_mixed(
       ur, since_epoch, is_toward_future=true,
     )
     let until_ts = make_timespec(ur, until_epoch)
     (since_ts, until_ts)
   } else {
-    // Until is absolute (anchor)
     let until_epoch = resolve_epoch(ur, now)
     let until_ts = make_timespec(ur, until_epoch)
-    // Since is relative to until
     let since_epoch = resolve_non_anchor_mixed(
       sr, until_epoch, is_toward_future=false,
     )
@@ -376,7 +338,6 @@ fn resolve_mixed(
 }
 
 ///| Resolve non-anchor in mixed mode.
-/// Explicit sign is respected. Unsigned defaults to context direction.
 fn resolve_non_anchor_mixed(
   part : RawPart,
   anchor_epoch : Int64,
@@ -386,7 +347,6 @@ fn resolve_non_anchor_mixed(
     Plus => anchor_epoch + part.duration
     Minus => anchor_epoch - part.duration
     Unsigned =>
-      // Semantic default: toward the other end (future for since→until, past for until→since)
       if is_toward_future {
         anchor_epoch + part.duration
       } else {
@@ -396,8 +356,6 @@ fn resolve_non_anchor_mixed(
 }
 
 ///| Resolve both-relative pair in Since/Until context.
-/// Anchor is resolved first against now.
-/// Non-anchor's sign is cosmetic — direction is always inward (s<=u).
 fn resolve_anchored(
   sr : RawPart,
   ur : RawPart,
@@ -407,22 +365,19 @@ fn resolve_anchored(
   if anchor_is_since {
     let since_epoch = resolve_epoch(sr, now)
     let since_ts = make_timespec(sr, since_epoch)
-    // Non-anchor: always + (toward future) to satisfy s<=u
     let until_epoch = since_epoch + ur.duration
     let until_ts = make_timespec(ur, until_epoch)
     (since_ts, until_ts)
   } else {
     let until_epoch = resolve_epoch(ur, now)
     let until_ts = make_timespec(ur, until_epoch)
-    // Non-anchor: always - (toward past) to satisfy s<=u
     let since_epoch = until_epoch - sr.duration
     let since_ts = make_timespec(sr, since_epoch)
     (since_ts, until_ts)
   }
 }
 
-///| Resolve same-type pair in Range context (no semantic defaults).
-/// Each side resolved independently against now.
+///| Resolve same-type pair independently.
 fn resolve_independent(
   sr : RawPart,
   ur : RawPart,
@@ -438,19 +393,9 @@ fn resolve_independent(
 ///| Find first occurrence of a character in input[start..end].
 fn find_char(input : String, c : Char, start : Int, end : Int) -> Int? {
   for i = start; i < end; i = i + 1 {
-    if input[i] == c {
+    if char_eq(input, i, c) {
       return Some(i)
     }
   }
   None
-}
-
-///| Create default parse options.
-pub fn default_options(now : Int64) -> ParseOptions {
-  {
-    context: Since,
-    now,
-    swap: false,
-    parse_datetime: default_parse_datetime,
-  }
 }
