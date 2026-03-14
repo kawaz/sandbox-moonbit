@@ -60,7 +60,7 @@ fn parse_iso8601(input : String) -> Int64 raise Iso8601Fail {
 ///| Parse digits from input[start..end], raising on non-digit.
 fn expect_digits(s : String, start : Int, end : Int) -> Int raise Iso8601Fail {
   let mut result = 0
-  for i = start; i < end; i = i + 1 {
+  for i in start..<end {
     guard char_in_range(s, i, '0', '9') else { raise Iso8601Fail }
     result = result * 10 + (s[i].to_int() - 0x30)
   }
@@ -98,7 +98,7 @@ fn is_timestamp_prefix(input : String, pos : Int, end : Int) -> Bool {
   if pos + 5 > end {
     return false
   }
-  for i = pos; i < pos + 4; i = i + 1 {
+  for i in pos..<(pos + 4) {
     if not(char_in_range(input, i, '0', '9')) {
       return false
     }
@@ -392,7 +392,7 @@ fn resolve_independent(
 
 ///| Find first occurrence of a character in input[start..end].
 fn find_char(input : String, c : Char, start : Int, end : Int) -> Int? {
-  for i = start; i < end; i = i + 1 {
+  for i in start..<end {
     if char_eq(input, i, c) {
       return Some(i)
     }
