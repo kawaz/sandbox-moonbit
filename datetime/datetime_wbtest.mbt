@@ -486,3 +486,13 @@ test "Duration::abs" {
   inspect(MsNs(-3L, 900_000).abs(), content="MsNs(2, 100000)")
   inspect(Ms(5L).abs(), content="Ms(5)")
 }
+
+///|
+test "parse_duration: 1_000.5s (underscore + decimal)" {
+  inspect(parse_duration("1_000.5s", 0, 8), content="Ms(1000500)")
+}
+
+///|
+test "parse_duration: 1_000.5_0s (underscore in both parts)" {
+  inspect(parse_duration("1_000.5_0s", 0, 10), content="Ms(1000500)")
+}
