@@ -10,3 +10,8 @@ fn char_in_range(s : String, pos : Int, lo : Char, hi : Char) -> Bool {
   let code = s[pos].to_int()
   code >= lo.to_int() && code <= hi.to_int()
 }
+
+///| Check if char at position is a digit, underscore, or decimal point.
+fn is_num_char(s : String, pos : Int) -> Bool {
+  char_in_range(s, pos, '0', '9') || char_eq(s, pos, '_') || char_eq(s, pos, '.')
+}

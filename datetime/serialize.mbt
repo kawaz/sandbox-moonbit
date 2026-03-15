@@ -4,16 +4,22 @@
 /// - `Relative` → signed duration (e.g., `-5m`, `+3m`, `0s`)
 pub fn TimeSpec::to_cli_string(self : TimeSpec) -> String {
   match self {
-    Absolute(epoch) => epoch_to_iso8601(epoch)
+    Absolute(epoch_ms) => epoch_to_iso8601(epoch_ms)
     Relative(_, offset) => format_offset(offset)
   }
 }
 
-///| Convert epoch seconds to ISO 8601 UTC string.
-fn epoch_to_iso8601(epoch : Int64) -> String {
-  let mut seconds = epoch
-  let mut days = seconds / 86400L
-  seconds = seconds % 86400L
+///| Convert epoch milliseconds to ISO 8601 UTC string.
+/// Includes fractional seconds (.NNN) only when sub-second ms component is non-zero.
+fn epoch_to_iso8601(epoch_ms : Int64) -> String {
+  let mut total_seconds = epoch_ms / 1000L
+  let mut sub_ms = (epoch_ms % 1000L).to_int()
+  if sub_ms < 0 {
+    sub_ms = sub_ms + 1000
+    total_seconds = total_seconds - 1L
+  }
+  let mut days = total_seconds / 86400L
+  let mut seconds = total_seconds % 86400L
   if seconds < 0L {
     seconds = seconds + 86400L
     days = days - 1L
@@ -35,6 +41,10 @@ fn epoch_to_iso8601(epoch : Int64) -> String {
   buf.write_string(pad2(minute))
   buf.write_char(':')
   buf.write_string(pad2(second))
+  if sub_ms > 0 {
+    buf.write_char('.')
+    buf.write_string(pad3(sub_ms))
+  }
   buf.write_char('Z')
   buf.to_string()
 }
@@ -57,6 +67,17 @@ fn days_to_civil(days : Int64) -> (Int, Int, Int) {
 ///|
 fn pad2(n : Int) -> String {
   if n < 10 {
+    "0" + n.to_string()
+  } else {
+    n.to_string()
+  }
+}
+
+///|
+fn pad3(n : Int) -> String {
+  if n < 10 {
+    "00" + n.to_string()
+  } else if n < 100 {
     "0" + n.to_string()
   } else {
     n.to_string()

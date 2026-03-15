@@ -1,10 +1,19 @@
+///| Duration with millisecond + optional sub-millisecond nanosecond precision.
+///
+/// - `Ms(ms)` → millisecond precision only
+/// - `MsNs(ms, ns)` → milliseconds + sub-ms nanoseconds (ns: 0..999_999)
+pub(all) enum Duration {
+  Ms(Int64)
+  MsNs(Int64, Int)
+} derive(Eq)
+
 ///| A time specification - either absolute (pinned to a moment) or relative (sliding window).
 ///
-/// - `Absolute(epoch)` → re-serializes as ISO 8601 timestamp
-/// - `Relative(epoch, offset)` → re-serializes as signed duration
+/// - `Absolute(epoch_ms)` → re-serializes as ISO 8601 timestamp
+/// - `Relative(epoch_ms, offset)` → re-serializes as signed duration
 pub(all) enum TimeSpec {
   Absolute(Int64)
-  Relative(Int64, Int64)
+  Relative(Int64, Duration)
 } derive(Eq)
 
 ///| A parsed time range (since/until pair).
@@ -37,6 +46,24 @@ pub impl Show for ParseError with output(self, logger) {
 }
 
 ///|
+pub impl Show for Duration with output(self, logger) {
+  match self {
+    Ms(ms) => {
+      logger.write_string("Ms(")
+      logger.write_string(ms.to_string())
+      logger.write_string(")")
+    }
+    MsNs(ms, ns) => {
+      logger.write_string("MsNs(")
+      logger.write_string(ms.to_string())
+      logger.write_string(", ")
+      logger.write_string(ns.to_string())
+      logger.write_string(")")
+    }
+  }
+}
+
+///|
 pub impl Show for TimeSpec with output(self, logger) {
   match self {
     Absolute(epoch) => {
@@ -48,7 +75,7 @@ pub impl Show for TimeSpec with output(self, logger) {
       logger.write_string("Relative(")
       logger.write_string(epoch.to_string())
       logger.write_string(", ")
-      logger.write_string(offset.to_string())
+      offset.output(logger)
       logger.write_string(")")
     }
   }
@@ -74,6 +101,6 @@ priv enum Sign {
 priv struct RawPart {
   is_absolute : Bool
   base_epoch : Int64?
-  duration : Int64
+  duration : Duration
   sign : Sign
 }
