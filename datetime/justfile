@@ -1,0 +1,20 @@
+# kawaz/datetime - CLI time spec parser
+
+default: check test
+
+fmt:
+  moon fmt
+
+check:
+  moon check --deny-warn
+
+test:
+  moon test
+
+test-update:
+  moon test --update
+
+info:
+  moon info
+
+release-check: fmt info check test
